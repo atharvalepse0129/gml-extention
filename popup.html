@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MemoryBridge</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap');
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --bg: #0a0a0f;
+      --surface: #111118;
+      --border: rgba(99,102,241,0.2);
+      --accent: #6366f1;
+      --accent-light: #818cf8;
+      --text: #e4e4f0;
+      --text-muted: rgba(228,228,240,0.45);
+      --success: #10b981;
+      --danger: #ef4444;
+    }
+
+    body {
+      width: 340px;
+      min-height: 480px;
+      max-height: 580px;
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 13px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Header */
+    .header {
+      padding: 16px 16px 12px;
+      border-bottom: 1px solid var(--border);
+      background: linear-gradient(135deg, rgba(99,102,241,0.08), transparent);
+      flex-shrink: 0;
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+
+    .logo-icon {
+      width: 28px;
+      height: 28px;
+      background: linear-gradient(135deg, #6366f1, #8b5cf6);
+      border-radius: 7px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      box-shadow: 0 4px 12px rgba(99,102,241,0.4);
+    }
+
+    .logo-text {
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: -0.3px;
+      background: linear-gradient(135deg, #818cf8, #c4b5fd);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .status-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .status-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #6b7280;
+      transition: background 0.3s;
+      flex-shrink: 0;
+    }
+    .status-dot.online { background: var(--success); box-shadow: 0 0 6px rgba(16,185,129,0.5); }
+    .status-dot.offline { background: var(--danger); }
+
+    .status-text {
+      font-size: 11px;
+      color: var(--text-muted);
+      flex: 1;
+    }
+
+    .platform-badge {
+      font-size: 10px;
+      padding: 2px 7px;
+      border-radius: 4px;
+      background: rgba(99,102,241,0.15);
+      border: 1px solid rgba(99,102,241,0.3);
+      color: var(--accent-light);
+      font-weight: 500;
+    }
+
+    /* Search */
+    .search-wrap {
+      padding: 10px 16px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    .search-input {
+      width: 100%;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 8px;
+      padding: 7px 10px;
+      color: var(--text);
+      font-size: 12px;
+      font-family: inherit;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    .search-input:focus {
+      border-color: var(--accent);
+      background: rgba(99,102,241,0.05);
+    }
+
+    .search-input::placeholder { color: var(--text-muted); }
+
+    /* Stats */
+    .stats-row {
+      display: flex;
+      padding: 8px 16px;
+      gap: 12px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    .stat {
+      flex: 1;
+      text-align: center;
+    }
+
+    .stat-value {
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--accent-light);
+      line-height: 1;
+    }
+
+    .stat-label {
+      font-size: 10px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    /* Memories list */
+    .memories-wrap {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px;
+    }
+
+    .memories-wrap::-webkit-scrollbar { width: 3px; }
+    .memories-wrap::-webkit-scrollbar-track { background: transparent; }
+    .memories-wrap::-webkit-scrollbar-thumb { background: rgba(99,102,241,0.3); border-radius: 2px; }
+
+    .memory-card {
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 8px;
+      padding: 10px;
+      margin-bottom: 6px;
+      cursor: pointer;
+      transition: all 0.15s;
+      position: relative;
+    }
+
+    .memory-card:hover {
+      border-color: rgba(99,102,241,0.35);
+      background: rgba(99,102,241,0.05);
+    }
+
+    .memory-card-header {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 5px;
+    }
+
+    .mem-type-tag {
+      font-size: 9px;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      font-weight: 600;
+      padding: 2px 5px;
+      border-radius: 3px;
+      background: rgba(99,102,241,0.15);
+      color: #818cf8;
+      border: 1px solid rgba(99,102,241,0.25);
+    }
+
+    .mem-model {
+      font-size: 9px;
+      color: var(--text-muted);
+      flex: 1;
+    }
+
+    .mem-date {
+      font-size: 9px;
+      color: var(--text-muted);
+    }
+
+    .memory-content {
+      font-size: 12px;
+      line-height: 1.5;
+      color: rgba(228,228,240,0.8);
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
+    .memory-card-actions {
+      display: none;
+      gap: 4px;
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px solid rgba(255,255,255,0.05);
+    }
+
+    .memory-card:hover .memory-card-actions {
+      display: flex;
+    }
+
+    .mem-action-btn {
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 5px;
+      color: var(--text-muted);
+      font-size: 10px;
+      padding: 3px 7px;
+      cursor: pointer;
+      font-family: inherit;
+      transition: all 0.15s;
+    }
+
+    .mem-action-btn:hover { color: var(--text); background: rgba(255,255,255,0.1); }
+    .mem-action-btn.danger:hover { color: #fca5a5; background: rgba(239,68,68,0.1); border-color: rgba(239,68,68,0.2); }
+
+    .empty-state {
+      text-align: center;
+      padding: 40px 20px;
+      color: var(--text-muted);
+    }
+
+    .empty-state .empty-icon { font-size: 36px; margin-bottom: 10px; }
+    .empty-state .empty-title { font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 4px; }
+    .empty-state .empty-sub { font-size: 11px; line-height: 1.5; }
+
+    .loading { text-align: center; padding: 30px; color: var(--text-muted); font-size: 12px; }
+
+    /* Footer */
+    .footer {
+      padding: 10px 16px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+
+    .footer-btn {
+      flex: 1;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 7px;
+      color: var(--text-muted);
+      font-size: 11px;
+      padding: 7px 10px;
+      cursor: pointer;
+      font-family: inherit;
+      transition: all 0.15s;
+      text-align: center;
+    }
+
+    .footer-btn:hover { color: var(--text); border-color: rgba(255,255,255,0.15); }
+    .footer-btn.primary {
+      background: linear-gradient(135deg, rgba(99,102,241,0.25), rgba(139,92,246,0.25));
+      border-color: rgba(99,102,241,0.4);
+      color: var(--accent-light);
+    }
+    .footer-btn.primary:hover {
+      background: linear-gradient(135deg, rgba(99,102,241,0.4), rgba(139,92,246,0.4));
+      color: #fff;
+    }
+
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 16px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    .toggle-label { font-size: 11px; color: var(--text-muted); }
+
+    .toggle {
+      width: 30px;
+      height: 16px;
+      background: rgba(255,255,255,0.1);
+      border-radius: 8px;
+      position: relative;
+      cursor: pointer;
+      transition: background 0.2s;
+      border: none;
+      outline: none;
+    }
+
+    .toggle.on { background: var(--accent); }
+
+    .toggle::after {
+      content: '';
+      position: absolute;
+      width: 12px;
+      height: 12px;
+      background: white;
+      border-radius: 50%;
+      top: 2px;
+      left: 2px;
+      transition: left 0.2s;
+    }
+
+    .toggle.on::after { left: 16px; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="logo">
+      <div class="logo-icon">🧠</div>
+      <span class="logo-text">MemoryBridge</span>
+      <span class="platform-badge" id="platform-badge">—</span>
+    </div>
+    <div class="status-row">
+      <div class="status-dot" id="status-dot"></div>
+      <span class="status-text" id="status-text">Checking connection...</span>
+    </div>
+  </div>
+
+  <div class="toggle-row">
+    <span class="toggle-label">Auto-capture</span>
+    <button class="toggle" id="toggle-capture"></button>
+    <span class="toggle-label" style="margin-left:12px">Auto-inject</span>
+    <button class="toggle" id="toggle-inject"></button>
+  </div>
+
+  <div class="search-wrap">
+    <input class="search-input" id="search-input" placeholder="Search your memories..." />
+  </div>
+
+  <div class="stats-row">
+    <div class="stat">
+      <div class="stat-value" id="stat-total">—</div>
+      <div class="stat-label">Total</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value" id="stat-today">—</div>
+      <div class="stat-label">Today</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value" id="stat-models">3</div>
+      <div class="stat-label">Models</div>
+    </div>
+  </div>
+
+  <div class="memories-wrap" id="memories-wrap">
+    <div class="loading">Loading memories...</div>
+  </div>
+
+  <div class="footer">
+    <button class="footer-btn" id="btn-refresh">↻ Refresh</button>
+    <button class="footer-btn primary" id="btn-dashboard">Open Dashboard →</button>
+  </div>
+
+  <script>
+    let settings = {};
+    let allMemories = [];
+    let searchTimer;
+
+    async function init() {
+      await loadSettings();
+      await checkHealth();
+      await loadMemories();
+      await detectPlatform();
+      setupListeners();
+    }
+
+    async function send(msg) {
+      return new Promise(resolve => chrome.runtime.sendMessage(msg, resolve));
+    }
+
+    async function loadSettings() {
+      settings = await send({ type: 'GET_SETTINGS' }) || {};
+      document.getElementById('toggle-capture').classList.toggle('on', settings.autoCapture !== false);
+      document.getElementById('toggle-inject').classList.toggle('on', settings.autoInject !== false);
+    }
+
+    async function checkHealth() {
+      const health = await send({ type: 'CHECK_HEALTH' });
+      const dot = document.getElementById('status-dot');
+      const text = document.getElementById('status-text');
+      if (health?.status === 'ok') {
+        dot.className = 'status-dot online';
+        text.textContent = 'Backend connected';
+      } else {
+        dot.className = 'status-dot offline';
+        text.textContent = 'Backend offline — start your server';
+      }
+    }
+
+    async function loadMemories(query = '') {
+      const wrap = document.getElementById('memories-wrap');
+      wrap.innerHTML = '<div class="loading">Loading...</div>';
+
+      let memories;
+      if (query.length > 2) {
+        const res = await send({ type: 'SEARCH_MEMORIES', query });
+        memories = res?.results || [];
+      } else {
+        const res = await send({ type: 'GET_MEMORIES', limit: 30 });
+        memories = res?.memories || [];
+      }
+
+      allMemories = memories;
+      updateStats(memories);
+      renderMemories(memories);
+    }
+
+    function updateStats(memories) {
+      document.getElementById('stat-total').textContent = memories.length;
+      const today = memories.filter(m => {
+        if (!m.created_at) return false;
+        const d = new Date(m.created_at);
+        const now = new Date();
+        return d.toDateString() === now.toDateString();
+      }).length;
+      document.getElementById('stat-today').textContent = today;
+    }
+
+    function renderMemories(memories) {
+      const wrap = document.getElementById('memories-wrap');
+      if (!memories.length) {
+        wrap.innerHTML = `
+          <div class="empty-state">
+            <div class="empty-icon">🧠</div>
+            <div class="empty-title">No memories yet</div>
+            <div class="empty-sub">Visit Claude, ChatGPT, or Gemini and start chatting. MemoryBridge will capture key information automatically.</div>
+          </div>`;
+        return;
+      }
+
+      wrap.innerHTML = memories.map(m => `
+        <div class="memory-card" data-id="${m.id}">
+          <div class="memory-card-header">
+            <span class="mem-type-tag">${m.type || 'note'}</span>
+            <span class="mem-model">${m.source_model || '—'}</span>
+            <span class="mem-date">${formatDate(m.created_at)}</span>
+          </div>
+          <div class="memory-content">${escHtml(m.content)}</div>
+          <div class="memory-card-actions">
+            <button class="mem-action-btn" onclick="copyMemory('${escHtml(m.id)}')">Copy</button>
+            <button class="mem-action-btn danger" onclick="deleteMemory('${escHtml(m.id)}')">Delete</button>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    window.copyMemory = async function(id) {
+      const m = allMemories.find(x => x.id === id);
+      if (!m) return;
+      await navigator.clipboard.writeText(m.content);
+    };
+
+    window.deleteMemory = async function(id) {
+      await send({ type: 'DELETE_MEMORY', id });
+      allMemories = allMemories.filter(m => m.id !== id);
+      renderMemories(allMemories);
+      updateStats(allMemories);
+    };
+
+    async function detectPlatform() {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      const badge = document.getElementById('platform-badge');
+      const url = tab?.url || '';
+      if (url.includes('claude.ai')) badge.textContent = 'Claude';
+      else if (url.includes('chatgpt.com') || url.includes('openai.com')) badge.textContent = 'ChatGPT';
+      else if (url.includes('gemini.google.com')) badge.textContent = 'Gemini';
+      else badge.textContent = 'No AI tab';
+    }
+
+    function setupListeners() {
+      document.getElementById('btn-refresh').addEventListener('click', () => loadMemories());
+      document.getElementById('btn-dashboard').addEventListener('click', () => {
+        chrome.tabs.create({ url: chrome.runtime.getURL('pages/dashboard.html') });
+      });
+
+      document.getElementById('search-input').addEventListener('input', (e) => {
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(() => loadMemories(e.target.value), 400);
+      });
+
+      document.getElementById('toggle-capture').addEventListener('click', async (e) => {
+        settings.autoCapture = !settings.autoCapture;
+        e.currentTarget.classList.toggle('on', settings.autoCapture);
+        await send({ type: 'SAVE_SETTINGS', settings });
+      });
+
+      document.getElementById('toggle-inject').addEventListener('click', async (e) => {
+        settings.autoInject = !settings.autoInject;
+        e.currentTarget.classList.toggle('on', settings.autoInject);
+        await send({ type: 'SAVE_SETTINGS', settings });
+      });
+    }
+
+    function escHtml(str) {
+      return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    function formatDate(iso) {
+      if (!iso) return '';
+      try { return new Date(iso).toLocaleDateString(undefined, { month:'short', day:'numeric' }); }
+      catch { return ''; }
+    }
+
+    init();
+  </script>
+</body>
+</html>

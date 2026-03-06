@@ -1,0 +1,835 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MemoryBridge Dashboard</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,300&family=DM+Mono:wght@400;500&display=swap');
+
+    * { margin:0; padding:0; box-sizing:border-box; }
+
+    :root {
+      --bg: #07070d;
+      --surface: #0f0f1a;
+      --surface2: #161625;
+      --border: rgba(99,102,241,0.15);
+      --border2: rgba(255,255,255,0.06);
+      --accent: #6366f1;
+      --accent2: #8b5cf6;
+      --text: #e8e8f5;
+      --text-muted: rgba(232,232,245,0.4);
+      --green: #10b981;
+      --red: #ef4444;
+      --yellow: #f59e0b;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'DM Sans', sans-serif;
+      min-height: 100vh;
+      display: flex;
+    }
+
+    /* Sidebar */
+    .sidebar {
+      width: 220px;
+      flex-shrink: 0;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      padding: 20px 0;
+      position: fixed;
+      top: 0; left: 0; bottom: 0;
+    }
+
+    .sidebar-logo {
+      padding: 0 20px 20px;
+      border-bottom: 1px solid var(--border2);
+    }
+
+    .logo-mark {
+      width: 36px;
+      height: 36px;
+      background: linear-gradient(135deg, #6366f1, #8b5cf6);
+      border-radius: 9px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      margin-bottom: 8px;
+      box-shadow: 0 4px 16px rgba(99,102,241,0.35);
+    }
+
+    .logo-name {
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: -0.4px;
+      background: linear-gradient(135deg, #818cf8, #c4b5fd);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .logo-sub {
+      font-size: 10px;
+      color: var(--text-muted);
+      margin-top: 1px;
+    }
+
+    .sidebar-nav {
+      flex: 1;
+      padding: 12px 8px;
+      overflow-y: auto;
+    }
+
+    .nav-section-title {
+      font-size: 9px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--text-muted);
+      padding: 0 12px;
+      margin: 12px 0 4px;
+    }
+
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 7px;
+      cursor: pointer;
+      font-size: 13px;
+      color: var(--text-muted);
+      transition: all 0.15s;
+      border: 1px solid transparent;
+      margin-bottom: 1px;
+    }
+
+    .nav-item:hover { color: var(--text); background: rgba(255,255,255,0.04); }
+
+    .nav-item.active {
+      background: rgba(99,102,241,0.12);
+      border-color: rgba(99,102,241,0.25);
+      color: #a5b4fc;
+    }
+
+    .nav-item .icon { font-size: 15px; width: 18px; text-align: center; }
+
+    .status-indicator {
+      padding: 12px 20px;
+      border-top: 1px solid var(--border2);
+    }
+
+    .status-badge {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+    }
+
+    .s-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--red); transition: background 0.3s; }
+    .s-dot.online { background: var(--green); box-shadow: 0 0 8px rgba(16,185,129,0.5); }
+
+    /* Main */
+    .main {
+      margin-left: 220px;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+    }
+
+    /* Top bar */
+    .topbar {
+      height: 60px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      padding: 0 28px;
+      gap: 16px;
+      position: sticky;
+      top: 0;
+      background: rgba(7,7,13,0.85);
+      backdrop-filter: blur(12px);
+      z-index: 10;
+    }
+
+    .page-title {
+      font-size: 15px;
+      font-weight: 600;
+      flex: 1;
+    }
+
+    .topbar-search {
+      background: var(--surface);
+      border: 1px solid var(--border2);
+      border-radius: 8px;
+      padding: 7px 14px;
+      color: var(--text);
+      font-size: 13px;
+      font-family: inherit;
+      outline: none;
+      width: 240px;
+      transition: border-color 0.2s;
+    }
+    .topbar-search:focus { border-color: var(--accent); }
+    .topbar-search::placeholder { color: var(--text-muted); }
+
+    .topbar-btn {
+      background: linear-gradient(135deg, rgba(99,102,241,0.2), rgba(139,92,246,0.2));
+      border: 1px solid rgba(99,102,241,0.35);
+      border-radius: 8px;
+      color: #a5b4fc;
+      font-size: 12px;
+      padding: 7px 14px;
+      cursor: pointer;
+      font-family: inherit;
+      font-weight: 500;
+      transition: all 0.15s;
+    }
+    .topbar-btn:hover { background: linear-gradient(135deg, rgba(99,102,241,0.35), rgba(139,92,246,0.35)); color: #fff; }
+
+    /* Content */
+    .content { padding: 24px 28px; flex: 1; }
+
+    /* Stats grid */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 14px;
+      margin-bottom: 24px;
+    }
+
+    .stat-card {
+      background: var(--surface);
+      border: 1px solid var(--border2);
+      border-radius: 12px;
+      padding: 16px;
+      transition: border-color 0.2s;
+    }
+    .stat-card:hover { border-color: var(--border); }
+
+    .stat-card-label { font-size: 11px; color: var(--text-muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .stat-card-value { font-size: 28px; font-weight: 700; line-height: 1; }
+    .stat-card-value.indigo { color: #818cf8; }
+    .stat-card-value.green { color: var(--green); }
+    .stat-card-value.purple { color: #a78bfa; }
+    .stat-card-value.yellow { color: var(--yellow); }
+    .stat-card-sub { font-size: 10px; color: var(--text-muted); margin-top: 4px; }
+
+    /* Filter bar */
+    .filter-bar {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 16px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .filter-chip {
+      background: var(--surface);
+      border: 1px solid var(--border2);
+      border-radius: 6px;
+      padding: 5px 12px;
+      font-size: 12px;
+      color: var(--text-muted);
+      cursor: pointer;
+      font-family: inherit;
+      transition: all 0.15s;
+    }
+    .filter-chip:hover { color: var(--text); }
+    .filter-chip.active { background: rgba(99,102,241,0.12); border-color: rgba(99,102,241,0.3); color: #a5b4fc; }
+
+    .filter-sep { flex: 1; }
+
+    .sort-select {
+      background: var(--surface);
+      border: 1px solid var(--border2);
+      border-radius: 6px;
+      padding: 5px 10px;
+      font-size: 12px;
+      color: var(--text-muted);
+      font-family: inherit;
+      outline: none;
+    }
+
+    /* Memory grid */
+    .memories-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 12px;
+    }
+
+    .mem-card {
+      background: var(--surface);
+      border: 1px solid var(--border2);
+      border-radius: 12px;
+      padding: 16px;
+      transition: all 0.2s;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .mem-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, var(--accent), var(--accent2));
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+
+    .mem-card:hover { border-color: rgba(99,102,241,0.3); transform: translateY(-1px); box-shadow: 0 8px 24px rgba(0,0,0,0.3); }
+    .mem-card:hover::before { opacity: 1; }
+
+    .mem-card-header { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 10px; }
+
+    .mem-type-badge {
+      font-size: 9px;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      font-weight: 600;
+      padding: 3px 7px;
+      border-radius: 4px;
+      flex-shrink: 0;
+    }
+    .mem-type-badge.conversation { background: rgba(99,102,241,0.15); color: #818cf8; border: 1px solid rgba(99,102,241,0.25); }
+    .mem-type-badge.preference { background: rgba(16,185,129,0.12); color: #34d399; border: 1px solid rgba(16,185,129,0.2); }
+    .mem-type-badge.fact { background: rgba(245,158,11,0.12); color: #fbbf24; border: 1px solid rgba(245,158,11,0.2); }
+    .mem-type-badge.auto { background: rgba(139,92,246,0.12); color: #a78bfa; border: 1px solid rgba(139,92,246,0.2); }
+
+    .mem-model-icon {
+      margin-left: auto;
+      font-size: 14px;
+      opacity: 0.7;
+    }
+
+    .mem-text {
+      font-size: 13px;
+      line-height: 1.6;
+      color: rgba(232,232,245,0.8);
+      display: -webkit-box;
+      -webkit-line-clamp: 3;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      font-family: 'DM Mono', monospace;
+      font-size: 12px;
+    }
+
+    .mem-footer {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 12px;
+      padding-top: 10px;
+      border-top: 1px solid var(--border2);
+    }
+
+    .mem-date-tag {
+      font-size: 10px;
+      color: var(--text-muted);
+      flex: 1;
+    }
+
+    .visibility-badge {
+      font-size: 9px;
+      padding: 2px 6px;
+      border-radius: 3px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .visibility-badge.private { background: rgba(239,68,68,0.1); color: #f87171; border: 1px solid rgba(239,68,68,0.2); }
+    .visibility-badge.cross-model { background: rgba(99,102,241,0.1); color: #818cf8; border: 1px solid rgba(99,102,241,0.2); }
+    .visibility-badge.team { background: rgba(16,185,129,0.1); color: #34d399; border: 1px solid rgba(16,185,129,0.2); }
+
+    .mem-actions { display: flex; gap: 4px; }
+
+    .mem-btn {
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 5px;
+      color: var(--text-muted);
+      font-size: 10px;
+      padding: 3px 7px;
+      cursor: pointer;
+      font-family: inherit;
+      transition: all 0.15s;
+    }
+    .mem-btn:hover { color: var(--text); background: rgba(255,255,255,0.08); }
+    .mem-btn.del:hover { color: #f87171; background: rgba(239,68,68,0.08); border-color: rgba(239,68,68,0.2); }
+
+    /* Settings panel */
+    .settings-panel { display: none; }
+    .settings-panel.active { display: block; }
+
+    .settings-section {
+      background: var(--surface);
+      border: 1px solid var(--border2);
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 16px;
+    }
+
+    .settings-section h3 { font-size: 13px; font-weight: 600; margin-bottom: 16px; color: var(--text); }
+
+    .settings-row {
+      display: flex;
+      align-items: center;
+      padding: 10px 0;
+      border-bottom: 1px solid var(--border2);
+      gap: 16px;
+    }
+    .settings-row:last-child { border-bottom: none; }
+
+    .settings-label { flex: 1; }
+    .settings-label-title { font-size: 13px; color: var(--text); }
+    .settings-label-desc { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+
+    .settings-input {
+      background: var(--bg);
+      border: 1px solid var(--border2);
+      border-radius: 7px;
+      color: var(--text);
+      font-size: 12px;
+      padding: 7px 10px;
+      font-family: 'DM Mono', monospace;
+      outline: none;
+      width: 220px;
+      transition: border-color 0.2s;
+    }
+    .settings-input:focus { border-color: var(--accent); }
+
+    .toggle-switch {
+      width: 36px;
+      height: 20px;
+      background: rgba(255,255,255,0.1);
+      border-radius: 10px;
+      position: relative;
+      cursor: pointer;
+      transition: background 0.2s;
+      border: none;
+      outline: none;
+      flex-shrink: 0;
+    }
+    .toggle-switch.on { background: var(--accent); }
+    .toggle-switch::after {
+      content: '';
+      position: absolute;
+      width: 14px; height: 14px;
+      background: white;
+      border-radius: 50%;
+      top: 3px; left: 3px;
+      transition: left 0.2s;
+    }
+    .toggle-switch.on::after { left: 19px; }
+
+    .save-btn {
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      border: none;
+      border-radius: 8px;
+      color: white;
+      font-size: 13px;
+      padding: 10px 20px;
+      cursor: pointer;
+      font-family: inherit;
+      font-weight: 600;
+      transition: opacity 0.15s;
+    }
+    .save-btn:hover { opacity: 0.9; }
+
+    /* Loading */
+    .loading-state { text-align: center; padding: 60px; color: var(--text-muted); }
+
+    /* Empty */
+    .empty-state {
+      text-align: center;
+      padding: 80px 40px;
+      color: var(--text-muted);
+    }
+    .empty-icon { font-size: 48px; margin-bottom: 12px; }
+    .empty-title { font-size: 16px; font-weight: 600; color: var(--text); margin-bottom: 6px; }
+    .empty-desc { font-size: 13px; line-height: 1.6; }
+
+    /* Toast */
+    #dash-toast {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      background: rgba(10,10,20,0.95);
+      border: 1px solid rgba(99,102,241,0.4);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 13px;
+      padding: 10px 16px;
+      z-index: 999;
+      transform: translateY(10px);
+      opacity: 0;
+      transition: all 0.25s;
+    }
+    #dash-toast.show { transform: translateY(0); opacity: 1; }
+  </style>
+</head>
+<body>
+
+<aside class="sidebar">
+  <div class="sidebar-logo">
+    <div class="logo-mark">🧠</div>
+    <div class="logo-name">MemoryBridge</div>
+    <div class="logo-sub">Universal AI Memory</div>
+  </div>
+
+  <nav class="sidebar-nav">
+    <div class="nav-section-title">Main</div>
+    <div class="nav-item active" data-view="memories">
+      <span class="icon">💾</span> Memories
+    </div>
+    <div class="nav-item" data-view="settings">
+      <span class="icon">⚙️</span> Settings
+    </div>
+
+    <div class="nav-section-title">Platforms</div>
+    <div class="nav-item" onclick="filterModel('claude')">
+      <span class="icon">◆</span> Claude
+    </div>
+    <div class="nav-item" onclick="filterModel('chatgpt')">
+      <span class="icon">◎</span> ChatGPT
+    </div>
+    <div class="nav-item" onclick="filterModel('gemini')">
+      <span class="icon">✦</span> Gemini
+    </div>
+  </nav>
+
+  <div class="status-indicator">
+    <div class="status-badge">
+      <div class="s-dot" id="s-dot"></div>
+      <span id="s-text" style="font-size:11px;color:var(--text-muted)">Checking...</span>
+    </div>
+  </div>
+</aside>
+
+<div class="main">
+  <div class="topbar">
+    <span class="page-title" id="page-title">All Memories</span>
+    <input class="topbar-search" id="topbar-search" placeholder="Search memories..." />
+    <button class="topbar-btn" id="btn-export">↓ Export</button>
+  </div>
+
+  <!-- Memories View -->
+  <div class="content" id="view-memories">
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-card-label">Total Memories</div>
+        <div class="stat-card-value indigo" id="ds-total">—</div>
+        <div class="stat-card-sub">All time</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card-label">This Week</div>
+        <div class="stat-card-value green" id="ds-week">—</div>
+        <div class="stat-card-sub">Last 7 days</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card-label">Models Active</div>
+        <div class="stat-card-value purple" id="ds-models">—</div>
+        <div class="stat-card-sub">Claude · ChatGPT · Gemini</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card-label">Injections Today</div>
+        <div class="stat-card-value yellow" id="ds-injections">—</div>
+        <div class="stat-card-sub">Memory uses</div>
+      </div>
+    </div>
+
+    <div class="filter-bar">
+      <button class="filter-chip active" data-filter="all">All</button>
+      <button class="filter-chip" data-filter="conversation">Conversation</button>
+      <button class="filter-chip" data-filter="preference">Preference</button>
+      <button class="filter-chip" data-filter="fact">Fact</button>
+      <div class="filter-sep"></div>
+      <select class="sort-select" id="sort-select">
+        <option value="newest">Newest first</option>
+        <option value="oldest">Oldest first</option>
+      </select>
+    </div>
+
+    <div class="memories-grid" id="memories-grid">
+      <div class="loading-state">Loading your memories...</div>
+    </div>
+  </div>
+
+  <!-- Settings View -->
+  <div class="content settings-panel" id="view-settings">
+    <div class="settings-section">
+      <h3>🔌 Backend Connection</h3>
+      <div class="settings-row">
+        <div class="settings-label">
+          <div class="settings-label-title">API Key</div>
+          <div class="settings-label-desc">Your MemoryBridge backend API key</div>
+        </div>
+        <input type="password" class="settings-input" id="s-apikey" placeholder="mb_xxxxxxxxxxxxxxxx" />
+      </div>
+      <div class="settings-row">
+        <div class="settings-label">
+          <div class="settings-label-title">User ID</div>
+          <div class="settings-label-desc">Your unique user identifier</div>
+        </div>
+        <input type="text" class="settings-input" id="s-userid" placeholder="user_xxxxxxx" />
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <h3>🧠 Memory Behavior</h3>
+      <div class="settings-row">
+        <div class="settings-label">
+          <div class="settings-label-title">Auto-capture conversations</div>
+          <div class="settings-label-desc">Automatically save AI responses to memory</div>
+        </div>
+        <button class="toggle-switch on" id="s-autocapture"></button>
+      </div>
+      <div class="settings-row">
+        <div class="settings-label">
+          <div class="settings-label-title">Auto-inject memories</div>
+          <div class="settings-label-desc">Prepend relevant memories before each prompt</div>
+        </div>
+        <button class="toggle-switch on" id="s-autoinject"></button>
+      </div>
+      <div class="settings-row">
+        <div class="settings-label">
+          <div class="settings-label-title">Default visibility</div>
+          <div class="settings-label-desc">Who can see memories by default</div>
+        </div>
+        <select class="settings-input" id="s-visibility" style="width:140px">
+          <option value="private">Private</option>
+          <option value="cross-model">Cross-model</option>
+          <option value="team">Team</option>
+        </select>
+      </div>
+    </div>
+
+    <button class="save-btn" id="btn-save-settings">Save Settings</button>
+  </div>
+</div>
+
+<div id="dash-toast"></div>
+
+<script>
+  let allMemories = [];
+  let currentFilter = 'all';
+  let currentModelFilter = null;
+  let settings = {};
+  let searchTimer;
+
+  function send(msg) {
+    return new Promise(resolve => chrome.runtime.sendMessage(msg, resolve));
+  }
+
+  async function init() {
+    await loadSettings();
+    await checkHealth();
+    await loadMemories();
+    setupNav();
+    setupFilters();
+    setupSearch();
+    setupSettings();
+    setupExport();
+  }
+
+  async function checkHealth() {
+    const h = await send({ type: 'CHECK_HEALTH' });
+    const dot = document.getElementById('s-dot');
+    const txt = document.getElementById('s-text');
+    if (h?.status === 'ok') {
+      dot.classList.add('online');
+      txt.textContent = 'Backend online';
+    } else {
+      txt.textContent = 'Backend offline';
+    }
+  }
+
+  async function loadSettings() {
+    settings = await send({ type: 'GET_SETTINGS' }) || {};
+    document.getElementById('s-apikey').value = settings.apiKey || '';
+    document.getElementById('s-userid').value = settings.userId || '';
+    document.getElementById('s-autocapture').classList.toggle('on', settings.autoCapture !== false);
+    document.getElementById('s-autoinject').classList.toggle('on', settings.autoInject !== false);
+    document.getElementById('s-visibility').value = settings.defaultVisibility || 'private';
+  }
+
+  async function loadMemories(query = '') {
+    const grid = document.getElementById('memories-grid');
+    grid.innerHTML = '<div class="loading-state">Loading memories...</div>';
+
+    let mems;
+    if (query.length > 2) {
+      const res = await send({ type: 'SEARCH_MEMORIES', query });
+      mems = res?.results || [];
+    } else {
+      const res = await send({ type: 'GET_MEMORIES', limit: 100 });
+      mems = res?.memories || [];
+    }
+
+    allMemories = mems;
+    updateStats(mems);
+    renderFiltered();
+  }
+
+  function updateStats(mems) {
+    document.getElementById('ds-total').textContent = mems.length;
+    const week = mems.filter(m => {
+      if (!m.created_at) return false;
+      return (Date.now() - new Date(m.created_at)) < 7 * 86400000;
+    }).length;
+    document.getElementById('ds-week').textContent = week;
+    const models = new Set(mems.map(m => m.source_model).filter(Boolean));
+    document.getElementById('ds-models').textContent = models.size || 0;
+    document.getElementById('ds-injections').textContent = '—';
+  }
+
+  function renderFiltered() {
+    let mems = [...allMemories];
+    if (currentFilter !== 'all') mems = mems.filter(m => m.type === currentFilter);
+    if (currentModelFilter) mems = mems.filter(m => m.source_model === currentModelFilter);
+
+    const sort = document.getElementById('sort-select').value;
+    if (sort === 'oldest') mems.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+    else mems.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+    renderGrid(mems);
+  }
+
+  function renderGrid(mems) {
+    const grid = document.getElementById('memories-grid');
+    if (!mems.length) {
+      grid.innerHTML = `
+        <div class="empty-state" style="grid-column:1/-1">
+          <div class="empty-icon">🧠</div>
+          <div class="empty-title">No memories found</div>
+          <div class="empty-desc">Start chatting on Claude, ChatGPT, or Gemini with the extension active to build your memory.</div>
+        </div>`;
+      return;
+    }
+
+    const modelIcon = { claude: '◆', chatgpt: '◎', gemini: '✦' };
+    grid.innerHTML = mems.map(m => `
+      <div class="mem-card">
+        <div class="mem-card-header">
+          <span class="mem-type-badge ${m.type || 'auto'}">${m.type || 'auto'}</span>
+          <span class="mem-model-icon">${modelIcon[m.source_model] || '·'}</span>
+        </div>
+        <div class="mem-text">${escHtml(m.content)}</div>
+        <div class="mem-footer">
+          <span class="mem-date-tag">${formatDate(m.created_at)}</span>
+          <span class="visibility-badge ${m.visibility || 'private'}">${m.visibility || 'private'}</span>
+          <div class="mem-actions">
+            <button class="mem-btn" onclick="copyMem('${m.id}')">Copy</button>
+            <button class="mem-btn del" onclick="deleteMem('${m.id}')">✕</button>
+          </div>
+        </div>
+      </div>
+    `).join('');
+  }
+
+  window.copyMem = function(id) {
+    const m = allMemories.find(x => x.id === id);
+    if (m) { navigator.clipboard.writeText(m.content); toast('Copied!'); }
+  };
+
+  window.deleteMem = async function(id) {
+    await send({ type: 'DELETE_MEMORY', id });
+    allMemories = allMemories.filter(m => m.id !== id);
+    updateStats(allMemories);
+    renderFiltered();
+    toast('Memory deleted');
+  };
+
+  window.filterModel = function(model) {
+    currentModelFilter = currentModelFilter === model ? null : model;
+    renderFiltered();
+  };
+
+  function setupFilters() {
+    document.querySelectorAll('.filter-chip').forEach(chip => {
+      chip.addEventListener('click', () => {
+        document.querySelectorAll('.filter-chip').forEach(c => c.classList.remove('active'));
+        chip.classList.add('active');
+        currentFilter = chip.dataset.filter;
+        renderFiltered();
+      });
+    });
+
+    document.getElementById('sort-select').addEventListener('change', renderFiltered);
+  }
+
+  function setupSearch() {
+    document.getElementById('topbar-search').addEventListener('input', e => {
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(() => loadMemories(e.target.value), 400);
+    });
+  }
+
+  function setupNav() {
+    document.querySelectorAll('.nav-item[data-view]').forEach(item => {
+      item.addEventListener('click', () => {
+        document.querySelectorAll('.nav-item[data-view]').forEach(i => i.classList.remove('active'));
+        item.classList.add('active');
+        const view = item.dataset.view;
+        document.getElementById('view-memories').style.display = view === 'memories' ? '' : 'none';
+        document.getElementById('view-settings').classList.toggle('active', view === 'settings');
+        document.getElementById('page-title').textContent = view === 'settings' ? 'Settings' : 'All Memories';
+      });
+    });
+  }
+
+  function setupSettings() {
+    ['s-autocapture', 's-autoinject'].forEach(id => {
+      document.getElementById(id).addEventListener('click', e => {
+        e.currentTarget.classList.toggle('on');
+      });
+    });
+
+    document.getElementById('btn-save-settings').addEventListener('click', async () => {
+      settings.apiKey = document.getElementById('s-apikey').value.trim();
+      settings.userId = document.getElementById('s-userid').value.trim();
+      settings.autoCapture = document.getElementById('s-autocapture').classList.contains('on');
+      settings.autoInject = document.getElementById('s-autoinject').classList.contains('on');
+      settings.defaultVisibility = document.getElementById('s-visibility').value;
+      await send({ type: 'SAVE_SETTINGS', settings });
+      toast('✅ Settings saved!');
+    });
+  }
+
+  function setupExport() {
+    document.getElementById('btn-export').addEventListener('click', () => {
+      const data = JSON.stringify(allMemories, null, 2);
+      const blob = new Blob([data], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `memorybridge-export-${Date.now()}.json`;
+      a.click();
+    });
+  }
+
+  function toast(msg, dur = 2500) {
+    const el = document.getElementById('dash-toast');
+    el.textContent = msg;
+    el.classList.add('show');
+    setTimeout(() => el.classList.remove('show'), dur);
+  }
+
+  function escHtml(s) {
+    return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  function formatDate(iso) {
+    if (!iso) return '—';
+    try { return new Date(iso).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }); }
+    catch { return ''; }
+  }
+
+  init();
+</script>
+</body>
+</html>
