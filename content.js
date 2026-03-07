@@ -14,7 +14,7 @@
   })();
 
   if (!PLATFORM) return;
-  console.log(`[MemoryBridge] Loaded on ${PLATFORM}`);
+  console.log(`[MemoryBridge] Aggressive loading on ${PLATFORM}`);
 
   // ─── Platform Selectors ───────────────────────────────────────────────────────
   const SELECTORS = {
@@ -43,11 +43,52 @@
   let lastCapturedResponse = '';
   let injectionPending = false;
   let memoryBarEl = null;
+  let isContextValid = true;
+
+  // ─── Helper: Safe Message Sending ───────────────────────────────────────────
+  async function sendMessageSafe(msg) {
+    if (!isContextValid) return null;
+    try {
+      return await new Promise((resolve, reject) => {
+        chrome.runtime.sendMessage(msg, (response) => {
+          if (chrome.runtime.lastError) {
+            if (chrome.runtime.lastError.message.includes('context invalidated')) {
+              console.warn('[MemoryBridge] Extension context invalidated. Please refresh the page.');
+              isContextValid = false;
+              cleanup();
+              resolve(null);
+            } else {
+              reject(chrome.runtime.lastError);
+            }
+          } else {
+            resolve(response);
+          }
+        });
+      });
+    } catch (err) {
+      console.error('[MemoryBridge] Message failed:', err);
+      return null;
+    }
+  }
+
+  function cleanup() {
+    if (memoryBarEl) {
+      memoryBarEl.style.opacity = '0.5';
+      memoryBarEl.title = 'Extension updated. Please refresh the page.';
+      const text = document.getElementById('mb-text');
+      if (text) text.textContent = 'Please refresh page';
+    }
+  }
 
   // ─── Init ─────────────────────────────────────────────────────────────────────
   async function init() {
     settings = await getSettings();
-    if (!settings.autoCapture && !settings.autoInject) return;
+    if (!settings) return; 
+    
+    // Force aggressive defaults if not set
+    if (settings.captureThreshold === undefined || settings.captureThreshold > 25) {
+        settings.captureThreshold = 20;
+    }
 
     injectStyles();
     createMemoryBar();
@@ -56,14 +97,13 @@
     listenForShortcuts();
   }
 
-  function getSettings() {
-    return new Promise(resolve => {
-      chrome.runtime.sendMessage({ type: 'GET_SETTINGS' }, resolve);
-    });
+  async function getSettings() {
+    return await sendMessageSafe({ type: 'GET_SETTINGS' });
   }
 
   // ─── Memory Bar UI ────────────────────────────────────────────────────────────
   function createMemoryBar() {
+    if (document.getElementById('mb-bar')) return;
     memoryBarEl = document.createElement('div');
     memoryBarEl.id = 'mb-bar';
     memoryBarEl.innerHTML = `
@@ -86,6 +126,7 @@
   }
 
   function togglePanel() {
+    if (!isContextValid) return;
     const panel = document.getElementById('mb-memories-panel');
     panel.classList.toggle('hidden');
     if (!panel.classList.contains('hidden')) loadMemoriesPanel();
@@ -95,19 +136,17 @@
     const list = document.getElementById('mb-memories-list');
     list.innerHTML = '<div class="mb-loading">Searching memories...</div>';
 
-    // Get input text for context-aware search
     const inputEl = document.querySelector(sel.input);
     const query = inputEl?.textContent?.trim() || inputEl?.value?.trim() || '';
 
-    let memories;
+    let res;
     if (query.length > 10) {
-      memories = await chrome.runtime.sendMessage({ type: 'SEARCH_MEMORIES', query });
+      res = await sendMessageSafe({ type: 'SEARCH_MEMORIES', query });
     } else {
-      memories = await chrome.runtime.sendMessage({ type: 'GET_MEMORIES', limit: 10 });
-      memories = memories?.memories || [];
+      res = await sendMessageSafe({ type: 'GET_MEMORIES', limit: 10 });
     }
 
-    const items = memories?.results || memories || [];
+    const items = res?.results || res?.memories || [];
     if (!items.length) {
       list.innerHTML = '<div class="mb-empty">No memories yet. Chat to start building your memory!</div>';
       return;
@@ -130,9 +169,10 @@
     });
   }
 
-  function toggleInjection() {
+  async function toggleInjection() {
+    if (!isContextValid) return;
     settings.autoInject = !settings.autoInject;
-    chrome.runtime.sendMessage({ type: 'SAVE_SETTINGS', settings });
+    await sendMessageSafe({ type: 'SAVE_SETTINGS', settings });
     const btn = document.getElementById('mb-toggle-btn');
     btn.textContent = `Inject: ${settings.autoInject ? 'ON' : 'OFF'}`;
     btn.classList.toggle('off', !settings.autoInject);
@@ -141,8 +181,8 @@
 
   // ─── Intercept Submit ─────────────────────────────────────────────────────────
   function observeSubmit() {
-    // Watch for keyboard shortcut Enter
     document.addEventListener('keydown', async (e) => {
+      if (!isContextValid) return;
       if (e.key !== 'Enter' || e.shiftKey) return;
       const input = document.querySelector(sel.input);
       if (!input || !document.activeElement?.closest(sel.input?.split(',')[0])) return;
@@ -151,8 +191,8 @@
       await handleUserMessage(text);
     }, true);
 
-    // Also watch submit button clicks
     document.addEventListener('click', async (e) => {
+      if (!isContextValid) return;
       const btn = e.target.closest(sel.submit);
       if (!btn) return;
       const input = document.querySelector(sel.input);
@@ -166,24 +206,19 @@
     if (!settings.autoInject) return;
     if (injectionPending) return;
 
-    // Search for relevant memories
-    const result = await chrome.runtime.sendMessage({
-      type: 'SEARCH_MEMORIES',
-      query: text
-    });
-
+    console.log('[MemoryBridge] Searching context for:', text.slice(0, 50));
+    const result = await sendMessageSafe({ type: 'SEARCH_MEMORIES', query: text });
     const memories = result?.results || [];
     if (memories.length === 0) return;
 
-    // Inject top memories into prompt
     const contextBlock = buildContextBlock(memories);
     await injectContext(contextBlock);
-    showToast(`🧠 Injected ${memories.length} memory${memories.length > 1 ? 'ies' : ''}`);
+    showToast(`🧠 Injected ${memories.length} memories`);
   }
 
   function buildContextBlock(memories) {
     const lines = memories.map(m => `- ${m.content}`).join('\n');
-    return `[MemoryBridge Context — relevant memories from previous sessions:\n${lines}\n]\n\n`;
+    return `[MemoryBridge Context — relevant memories:\n${lines}\n]\n\n`;
   }
 
   async function injectContext(contextBlock) {
@@ -198,7 +233,6 @@
       nativeSetter?.call(input, contextBlock + existingText);
       input.dispatchEvent(new Event('input', { bubbles: true }));
     } else if (input.contentEditable === 'true') {
-      // For contenteditable divs (Claude, Gemini)
       input.focus();
       const range = document.createRange();
       range.selectNodeContents(input);
@@ -208,7 +242,6 @@
       selection.addRange(range);
       document.execCommand('insertText', false, contextBlock);
     }
-
     setTimeout(() => { injectionPending = false; }, 1000);
   }
 
@@ -221,6 +254,7 @@
   // ─── Capture Responses ────────────────────────────────────────────────────────
   function observeResponses() {
     const observer = new MutationObserver(async () => {
+      if (!isContextValid) { observer.disconnect(); return; }
       if (!settings.autoCapture) return;
 
       const responses = document.querySelectorAll(sel.response);
@@ -230,51 +264,57 @@
       const text = lastResponse?.textContent?.trim();
 
       if (!text || text === lastCapturedResponse) return;
-      if (text.length < (settings.captureThreshold || 100)) return;
+      
+      const threshold = settings.captureThreshold || 20;
+      if (text.length < threshold) {
+        // console.log(`[MemoryBridge] Text too short to capture (${text.length}<${threshold})`);
+        return;
+      }
 
-      // Debounce — wait for response to finish streaming
       clearTimeout(window._mbCaptureTimer);
       window._mbCaptureTimer = setTimeout(async () => {
-        if (text === lastCapturedResponse) return;
+        if (!isContextValid || text === lastCapturedResponse) return;
         lastCapturedResponse = text;
         await captureConversationTurn(text);
-      }, 3000);
+      }, 2500); 
     });
 
-    // Observe the whole page
     observer.observe(document.body, { childList: true, subtree: true, characterData: true });
   }
 
   async function captureConversationTurn(responseText) {
-    // Get the last user message for context
+    console.log('[MemoryBridge] Capture triggered for:', responseText.slice(0, 50));
+    showToast('🧠 Processing memory...', 3000);
+
     const inputEl = document.querySelector(sel.input);
     const userText = inputEl?.textContent?.trim() || inputEl?.value?.trim() || '';
 
-    const combined = userText
-      ? `User: ${userText}\n\nAssistant: ${responseText}`
-      : responseText;
+    const combined = userText ? `User: ${userText}\n\nAssistant: ${responseText}` : responseText;
 
-    const result = await chrome.runtime.sendMessage({
+    const result = await sendMessageSafe({
       type: 'SAVE_MEMORY',
       payload: {
-        content: combined.slice(0, 3000), // cap size
+        content: combined.slice(0, 4000), 
         source: location.href,
         model: PLATFORM,
-        type: 'conversation',
-        visibility: settings.defaultVisibility || 'private'
+        type: 'conversation'
       }
     });
 
     if (result?.id) {
+      console.log('[MemoryBridge] Memory saved successfully, ID:', result.id);
       updateBadge();
-      showToast('💾 Memory saved', 1500);
+      showToast('💾 Memory saved!', 2000);
+    } else {
+      console.error('[MemoryBridge] Save failed:', result?.error);
+      showToast('❌ Save failed', 2000);
     }
   }
 
   // ─── Keyboard Shortcuts ───────────────────────────────────────────────────────
   function listenForShortcuts() {
     document.addEventListener('keydown', (e) => {
-      // Ctrl+Shift+M → open memory panel
+      if (!isContextValid) return;
       if (e.ctrlKey && e.shiftKey && e.key === 'M') {
         e.preventDefault();
         togglePanel();
@@ -293,13 +333,15 @@
     document.body.appendChild(toast);
     setTimeout(() => toast.classList.add('show'), 10);
     setTimeout(() => {
-      toast.classList.remove('show');
-      setTimeout(() => toast.remove(), 300);
+      if (toast.parentNode) {
+        toast.classList.remove('show');
+        setTimeout(() => toast.remove(), 300);
+      }
     }, duration);
   }
 
   function updateBadge() {
-    chrome.runtime.sendMessage({ type: 'UPDATE_BADGE' });
+    sendMessageSafe({ type: 'UPDATE_BADGE' });
   }
 
   // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -309,19 +351,40 @@
 
   function formatDate(iso) {
     if (!iso) return '';
-    try {
-      return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-    } catch { return ''; }
+    try { return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }); } 
+    catch { return ''; }
   }
 
   function injectStyles() {
-    // Styles injected from content.css
+    if (document.getElementById('mb-styles')) return;
+    const style = document.createElement('style');
+    style.id = 'mb-styles';
+    style.textContent = `
+      #mb-bar { position: fixed; bottom: 0; left: 0; width: 100%; background: #1f2937; color: white; height: 32px; font-size: 13px; z-index: 999999; display: flex; align-items: center; padding: 0 15px; box-shadow: 0 -2px 10px rgba(0,0,0,0.2); border-top: 1px solid #374151; font-family: sans-serif; }
+      #mb-bar-inner { width: 100%; display: flex; align-items: center; justify-content: space-between; }
+      #mb-icon { margin-right: 8px; font-size: 16px; }
+      #mb-actions { display: flex; gap: 10px; }
+      #mb-actions button { background: #374151; color: white; border: none; padding: 2px 8px; border-radius: 4px; cursor: pointer; font-size: 11px; transition: background 0.2s; }
+      #mb-actions button:hover { background: #4b5563; }
+      #mb-actions button.off { opacity: 0.5; background: #991b1b; }
+      #mb-memories-panel { position: fixed; bottom: 32px; left: 0; width: 350px; max-height: 500px; background: #111827; border: 1px solid #374151; border-bottom: none; overflow-y: auto; padding: 10px; z-index: 999998; box-shadow: 2px 0 10px rgba(0,0,0,0.3); }
+      .hidden { display: none !important; }
+      .mb-memory-item { background: #1f2937; padding: 8px; border-radius: 6px; margin-bottom: 8px; border-left: 3px solid #6366f1; }
+      .mb-memory-type { font-size: 10px; text-transform: uppercase; opacity: 0.6; margin-bottom: 4px; }
+      .mb-memory-content { font-size: 12px; margin-bottom: 6px; line-height: 1.4; white-space: pre-wrap; word-break: break-word; }
+      .mb-memory-meta { display: flex; justify-content: space-between; align-items: center; font-size: 10px; opacity: 0.7; }
+      .mb-inject-btn { background: transparent; color: #818cf8; border: 1px solid #312e81; padding: 1px 5px; border-radius: 3px; cursor: pointer; }
+      .mb-inject-btn:hover { background: #312e81; color: white; }
+      #mb-toast { position: fixed; left: 50%; bottom: 50px; transform: translateX(-50%) translateY(20px); background: #6366f1; color: white; padding: 8px 20px; border-radius: 20px; font-size: 14px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); pointer-events: none; opacity: 0; transition: all 0.3s; z-index: 1000000; }
+      #mb-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+    `;
+    document.head.appendChild(style);
   }
 
   // ─── Boot ─────────────────────────────────────────────────────────────────────
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);
   } else {
-    setTimeout(init, 1500); // wait for SPA to mount
+    setTimeout(init, 1000); 
   }
 })();

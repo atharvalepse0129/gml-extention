@@ -124,16 +124,22 @@ async function checkHealth() {
 // ─── Settings ─────────────────────────────────────────────────────────────────
 async function getSettings() {
   return new Promise(resolve => {
-    chrome.storage.local.get(['mbSettings'], result => {
-      resolve(result.mbSettings || {
-        userId: 'user_' + Math.random().toString(36).slice(2, 9),
-        apiKey: '',
-        autoCapture: true,
-        autoInject: true,
-        injectionDelay: 500,
-        showBadge: true,
-        captureThreshold: 100 // min chars to capture
-      });
+    chrome.storage.local.get(['mbSettings'], async result => {
+      if (result.mbSettings) {
+        resolve(result.mbSettings);
+      } else {
+        const defaults = {
+          userId: 'user_' + Math.random().toString(36).slice(2, 9),
+          apiKey: '',
+          autoCapture: true,
+          autoInject: true,
+          injectionDelay: 500,
+          showBadge: true,
+          captureThreshold: 20
+        };
+        await chrome.storage.local.set({ mbSettings: defaults });
+        resolve(defaults);
+      }
     });
   });
 }

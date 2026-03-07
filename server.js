@@ -1,9 +1,8 @@
+import './lib/loadEnv.js';
+
 import express from 'express';
 import cors from 'cors';
-import dotenv from 'dotenv';
 import memoryRoutes from './routes/memory.js';
-
-dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
