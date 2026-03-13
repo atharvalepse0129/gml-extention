@@ -14,51 +14,55 @@
   })();
 
   if (!PLATFORM) return;
-  console.log(`[MemoryBridge] Aggressive loading on ${PLATFORM}`);
+  console.log(`[MemoryBridge] Loaded on ${PLATFORM}`);
 
-  // ─── Platform Selectors ───────────────────────────────────────────────────────
-  const SELECTORS = {
+  // ─── Platform Config ───────────────────────────────────────────────────────────
+  const CONFIG = {
     claude: {
       input: '[contenteditable="true"][data-placeholder]',
       submit: 'button[aria-label="Send Message"], button[type="submit"]',
       response: '[data-testid="assistant-message"] .prose, .font-claude-message',
-      conversation: 'main'
+      // Selector for user message bubbles in the chat history
+      userBubble: '[data-testid="user-message"]',
     },
     chatgpt: {
-      input: '#prompt-textarea, [contenteditable="true"][data-id]',
+      input: '#prompt-textarea',
       submit: 'button[data-testid="send-button"], button[aria-label="Send prompt"]',
       response: '[data-message-author-role="assistant"] .markdown',
-      conversation: 'main'
+      userBubble: '[data-message-author-role="user"] .whitespace-pre-wrap',
     },
     gemini: {
       input: 'rich-textarea .ql-editor, [contenteditable="true"].input-area-container',
       submit: 'button.send-button, button[aria-label="Send message"]',
       response: '.response-content .markdown, model-response .response-text',
-      conversation: 'chat-window, .conversation-container'
+      userBubble: 'user-query .query-text',
     }
   };
 
-  const sel = SELECTORS[PLATFORM];
+  const sel = CONFIG[PLATFORM];
   let settings = {};
   let lastCapturedResponse = '';
-  let injectionPending = false;
+  let isInjecting = false;
   let memoryBarEl = null;
   let isContextValid = true;
+  // Marker so we can strip context from the displayed bubble after send
+  const CONTEXT_MARKER_START = '【MB:';
+  const CONTEXT_MARKER_END = '】\n\n';
 
-  // ─── Helper: Safe Message Sending ───────────────────────────────────────────
+  // ─── Safe Message Helper ───────────────────────────────────────────────────────
   async function sendMessageSafe(msg) {
     if (!isContextValid) return null;
     try {
       return await new Promise((resolve, reject) => {
         chrome.runtime.sendMessage(msg, (response) => {
           if (chrome.runtime.lastError) {
-            if (chrome.runtime.lastError.message.includes('context invalidated')) {
-              console.warn('[MemoryBridge] Extension context invalidated. Please refresh the page.');
+            const errMsg = chrome.runtime.lastError.message || '';
+            if (errMsg.includes('context invalidated')) {
               isContextValid = false;
               cleanup();
               resolve(null);
             } else {
-              reject(chrome.runtime.lastError);
+              reject(new Error(errMsg));
             }
           } else {
             resolve(response);
@@ -74,7 +78,6 @@
   function cleanup() {
     if (memoryBarEl) {
       memoryBarEl.style.opacity = '0.5';
-      memoryBarEl.title = 'Extension updated. Please refresh the page.';
       const text = document.getElementById('mb-text');
       if (text) text.textContent = 'Please refresh page';
     }
@@ -82,26 +85,20 @@
 
   // ─── Init ─────────────────────────────────────────────────────────────────────
   async function init() {
-    settings = await getSettings();
-    if (!settings) return; 
-    
-    // Force aggressive defaults if not set
-    if (settings.captureThreshold === undefined || settings.captureThreshold > 25) {
-        settings.captureThreshold = 20;
+    settings = await sendMessageSafe({ type: 'GET_SETTINGS' });
+    if (!settings) return;
+    if (!settings.captureThreshold || settings.captureThreshold > 25) {
+      settings.captureThreshold = 20;
     }
-
     injectStyles();
     createMemoryBar();
-    observeSubmit();
+    setupSubmitInterceptor();
     observeResponses();
+    observeUserBubblesForCleanup(); // strip context from displayed bubbles
     listenForShortcuts();
   }
 
-  async function getSettings() {
-    return await sendMessageSafe({ type: 'GET_SETTINGS' });
-  }
-
-  // ─── Memory Bar UI ────────────────────────────────────────────────────────────
+  // ─── Memory Bar ────────────────────────────────────────────────────────────────
   function createMemoryBar() {
     if (document.getElementById('mb-bar')) return;
     memoryBarEl = document.createElement('div');
@@ -111,8 +108,8 @@
         <span id="mb-icon">🧠</span>
         <span id="mb-text">MemoryBridge active</span>
         <div id="mb-actions">
-          <button id="mb-search-btn" title="Search memories (Ctrl+Shift+M)">Search</button>
-          <button id="mb-toggle-btn" title="Toggle injection">Inject: ON</button>
+          <button id="mb-search-btn" title="Browse memories (Ctrl+Shift+M)">Memories</button>
+          <button id="mb-toggle-btn">Inject: ${settings.autoInject !== false ? 'ON' : 'OFF'}</button>
         </div>
       </div>
       <div id="mb-memories-panel" class="hidden">
@@ -120,8 +117,7 @@
       </div>
     `;
     document.body.appendChild(memoryBarEl);
-
-    document.getElementById('mb-search-btn').addEventListener('click', () => togglePanel());
+    document.getElementById('mb-search-btn').addEventListener('click', togglePanel);
     document.getElementById('mb-toggle-btn').addEventListener('click', toggleInjection);
   }
 
@@ -134,28 +130,16 @@
 
   async function loadMemoriesPanel() {
     const list = document.getElementById('mb-memories-list');
-    list.innerHTML = '<div class="mb-loading">Searching memories...</div>';
-
-    const inputEl = document.querySelector(sel.input);
-    const query = inputEl?.textContent?.trim() || inputEl?.value?.trim() || '';
-
-    let res;
-    if (query.length > 10) {
-      res = await sendMessageSafe({ type: 'SEARCH_MEMORIES', query });
-    } else {
-      res = await sendMessageSafe({ type: 'GET_MEMORIES', limit: 10 });
-    }
-
-    const items = res?.results || res?.memories || [];
+    list.innerHTML = '<div class="mb-loading">Loading memories...</div>';
+    const res = await sendMessageSafe({ type: 'GET_MEMORIES', limit: 20 });
+    const items = res?.memories || [];
     if (!items.length) {
-      list.innerHTML = '<div class="mb-empty">No memories yet. Chat to start building your memory!</div>';
+      list.innerHTML = '<div class="mb-empty">No memories yet.</div>';
       return;
     }
-
     list.innerHTML = items.map(m => `
-      <div class="mb-memory-item" data-id="${m.id}">
-        <div class="mb-memory-type">${m.type || 'note'}</div>
-        <div class="mb-memory-content">${escapeHtml(m.content)}</div>
+      <div class="mb-memory-item">
+        <div class="mb-memory-content">${escapeHtml(m.content.slice(0, 200))}</div>
         <div class="mb-memory-meta">
           <span>${m.source_model || PLATFORM}</span>
           <span>${formatDate(m.created_at)}</span>
@@ -163,7 +147,6 @@
         </div>
       </div>
     `).join('');
-
     list.querySelectorAll('.mb-inject-btn').forEach(btn => {
       btn.addEventListener('click', () => injectManual(btn.dataset.content));
     });
@@ -174,84 +157,196 @@
     settings.autoInject = !settings.autoInject;
     await sendMessageSafe({ type: 'SAVE_SETTINGS', settings });
     const btn = document.getElementById('mb-toggle-btn');
-    btn.textContent = `Inject: ${settings.autoInject ? 'ON' : 'OFF'}`;
-    btn.classList.toggle('off', !settings.autoInject);
-    showToast(settings.autoInject ? '✅ Auto-injection enabled' : '⏸ Auto-injection paused');
+    if (btn) btn.textContent = `Inject: ${settings.autoInject ? 'ON' : 'OFF'}`;
+    showToast(settings.autoInject ? '✅ Auto-injection ON' : '⏸ Auto-injection OFF');
   }
 
-  // ─── Intercept Submit ─────────────────────────────────────────────────────────
-  function observeSubmit() {
-    document.addEventListener('keydown', async (e) => {
-      if (!isContextValid) return;
-      if (e.key !== 'Enter' || e.shiftKey) return;
-      const input = document.querySelector(sel.input);
-      if (!input || !document.activeElement?.closest(sel.input?.split(',')[0])) return;
-      const text = input.textContent?.trim() || input.value?.trim();
-      if (!text || text.length < 5) return;
-      await handleUserMessage(text);
-    }, true);
-
-    document.addEventListener('click', async (e) => {
-      if (!isContextValid) return;
-      const btn = e.target.closest(sel.submit);
-      if (!btn) return;
-      const input = document.querySelector(sel.input);
-      const text = input?.textContent?.trim() || input?.value?.trim();
-      if (!text || text.length < 5) return;
-      await handleUserMessage(text);
-    }, true);
+  // ─── Submit Interceptor ───────────────────────────────────────────────────────
+  function setupSubmitInterceptor() {
+    // Capture phase — fires before the AI platform's own handlers
+    document.addEventListener('keydown', handleSubmitEvent, true);
+    document.addEventListener('click', handleSubmitClick, true);
   }
 
-  async function handleUserMessage(text) {
-    if (!settings.autoInject) return;
-    if (injectionPending) return;
+  async function handleSubmitEvent(e) {
+    if (!isContextValid || !settings.autoInject || isInjecting) return;
+    if (e.key !== 'Enter' || e.shiftKey || e.ctrlKey || e.altKey) return;
+    const input = getInputEl();
+    if (!input || !isInputFocused(input)) return;
+    const userText = getText(input);
+    if (!userText || userText.length < 3) return;
 
-    console.log('[MemoryBridge] Searching context for:', text.slice(0, 50));
-    const result = await sendMessageSafe({ type: 'SEARCH_MEMORIES', query: text });
-    const memories = result?.results || [];
-    if (memories.length === 0) return;
+    // ⚠️ MUST block the event synchronously — BEFORE any await.
+    // Once we yield (await), the browser has already dispatched to ChatGPT's handlers.
+    e.preventDefault();
+    e.stopImmediatePropagation();
 
-    const contextBlock = buildContextBlock(memories);
-    await injectContext(contextBlock);
-    showToast(`🧠 Injected ${memories.length} memories`);
+    await enrichAndSubmit(input, userText);
   }
 
-  function buildContextBlock(memories) {
-    const lines = memories.map(m => `- ${m.content}`).join('\n');
-    return `[MemoryBridge Context — relevant memories:\n${lines}\n]\n\n`;
+  async function handleSubmitClick(e) {
+    if (!isContextValid || !settings.autoInject || isInjecting) return;
+    if (!e.target.closest(sel.submit)) return;
+    const input = getInputEl();
+    const userText = getText(input);
+    if (!userText || userText.length < 3) return;
+
+    // Same — block first, then do async work
+    e.preventDefault();
+    e.stopImmediatePropagation();
+
+    await enrichAndSubmit(input, userText);
   }
 
-  async function injectContext(contextBlock) {
-    injectionPending = true;
-    const input = document.querySelector(sel.input);
-    if (!input) { injectionPending = false; return; }
+  async function enrichAndSubmit(input, userText) {
+    showToast('🔍 Searching memories...', 1500);
+    const contextBlock = await buildContextBlock(userText);
 
-    const existingText = input.textContent?.trim() || input.value?.trim() || '';
-
-    if (input.tagName === 'TEXTAREA' || input.tagName === 'INPUT') {
-      const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set;
-      nativeSetter?.call(input, contextBlock + existingText);
-      input.dispatchEvent(new Event('input', { bubbles: true }));
-    } else if (input.contentEditable === 'true') {
-      input.focus();
-      const range = document.createRange();
-      range.selectNodeContents(input);
-      range.collapse(true);
-      const selection = window.getSelection();
-      selection.removeAllRanges();
-      selection.addRange(range);
-      document.execCommand('insertText', false, contextBlock);
+    isInjecting = true;
+    try {
+      if (contextBlock) {
+        showToast('🧠 Injecting context...', 2000);
+        const hidden = `${CONTEXT_MARKER_START}${contextBlock}${CONTEXT_MARKER_END}`;
+        await writeToInput(input, hidden + userText);
+        await new Promise(r => setTimeout(r, 80)); // let framework reconcile
+      }
+      // Whether or not we found memories, we must still submit the message
+      doSubmit(input);
+    } finally {
+      setTimeout(() => { isInjecting = false; }, 2000);
     }
-    setTimeout(() => { injectionPending = false; }, 1000);
+  }
+
+  // ─── Write to Input (React + contenteditable safe) ───────────────────────────
+  async function writeToInput(input, fullText) {
+    try {
+      if (input.tagName === 'TEXTAREA' || input.tagName === 'INPUT') {
+        // Use native prototype setter to bypass React's property descriptor
+        const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set;
+        if (nativeSetter) {
+          nativeSetter.call(input, fullText);
+        } else {
+          input.value = fullText;
+        }
+        // React needs both 'input' and 'change' events to update its internal state
+        input.dispatchEvent(new InputEvent('input', { bubbles: true, data: fullText }));
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+        return true;
+
+      } else if (input.contentEditable === 'true') {
+        // Claude / Gemini — contenteditable approach
+        input.focus();
+        // Select all existing content
+        const selection = window.getSelection();
+        const range = document.createRange();
+        range.selectNodeContents(input);
+        selection.removeAllRanges();
+        selection.addRange(range);
+        // execCommand('insertText') triggers the editor's own mutation handling
+        const success = document.execCommand('insertText', false, fullText);
+        if (!success) {
+          // Fallback for browsers where execCommand is deprecated
+          input.innerText = fullText;
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+        return true;
+      }
+    } catch (err) {
+      console.error('[MemoryBridge] writeToInput error:', err);
+    }
+    return false;
+  }
+
+  function doSubmit(input) {
+    const btn = document.querySelector(sel.submit);
+    if (btn && !btn.disabled) {
+      btn.click();
+    } else {
+      // Dispatch as a new synthetic event that we do NOT catch (isInjecting = true)
+      input.dispatchEvent(new KeyboardEvent('keydown', {
+        key: 'Enter', code: 'Enter', keyCode: 13,
+        bubbles: true, cancelable: true
+      }));
+    }
   }
 
   async function injectManual(content) {
-    await injectContext(`[Memory: ${content}]\n\n`);
-    showToast('🧠 Memory injected!');
+    const input = getInputEl();
+    if (!input) { showToast('❌ Could not find input'); return; }
+    const userText = getText(input);
+    const full = `${CONTEXT_MARKER_START}[Memory: ${content}]${CONTEXT_MARKER_END}${userText}`;
+    const ok = await writeToInput(input, full);
+    if (ok) {
+      showToast('🧠 Memory injected — press Enter to send!');
+    }
     togglePanel();
   }
 
-  // ─── Capture Responses ────────────────────────────────────────────────────────
+  // ─── Build Context Block ──────────────────────────────────────────────────────
+  async function buildContextBlock(userText) {
+    const res = await sendMessageSafe({ type: 'SEARCH_MEMORIES', query: userText });
+    const memories = res?.results || [];
+    if (!memories.length) return null;
+
+    // Prefer extracted facts first, fall back to raw content
+    const facts = [];
+    for (const m of memories) {
+      const ef = m.extracted_facts?.facts;
+      if (Array.isArray(ef) && ef.length > 0) {
+        facts.push(...ef.slice(0, 2));
+      } else if (m.content) {
+        facts.push(m.content.split('\n')[0].slice(0, 250));
+      }
+    }
+    const unique = [...new Set(facts)].slice(0, 8);
+    if (!unique.length) return null;
+
+    return `Relevant facts remembered about the user:\n${unique.map(f => `• ${f}`).join('\n')}`;
+  }
+
+  // ─── Clean Context From Displayed User Bubbles ────────────────────────────────
+  // After the message is sent, the context block shows in the chat history bubble.
+  // This observer strips it out so only the user's actual message is visible.
+  function observeUserBubblesForCleanup() {
+    const cleanupObserver = new MutationObserver(() => {
+      document.querySelectorAll(sel.userBubble).forEach(bubble => {
+        if (bubble.dataset.mbCleaned) return; // skip already processed
+        const html = bubble.innerHTML;
+        if (!html.includes(CONTEXT_MARKER_START)) return;
+        // Strip the context block from the visual display
+        const startIdx = html.indexOf(CONTEXT_MARKER_START);
+        const endIdx = html.indexOf(CONTEXT_MARKER_END);
+        if (startIdx !== -1 && endIdx !== -1) {
+          bubble.innerHTML = html.slice(endIdx + CONTEXT_MARKER_END.length);
+          bubble.dataset.mbCleaned = '1';
+          console.log('[MemoryBridge] Cleaned context from displayed bubble');
+        }
+      });
+    });
+    cleanupObserver.observe(document.body, { childList: true, subtree: true });
+  }
+
+  // ─── Helpers ──────────────────────────────────────────────────────────────────
+  function getInputEl() {
+    for (const s of sel.input.split(',')) {
+      const el = document.querySelector(s.trim());
+      if (el) return el;
+    }
+    return null;
+  }
+
+  function isInputFocused(el) {
+    return el && (document.activeElement === el || el.contains(document.activeElement));
+  }
+
+  function getText(el) {
+    if (!el) return '';
+    return (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT')
+      ? el.value.trim()
+      : el.innerText.trim();
+  }
+
+  // ─── Capture AI Responses ─────────────────────────────────────────────────────
   function observeResponses() {
     const observer = new MutationObserver(async () => {
       if (!isContextValid) { observer.disconnect(); return; }
@@ -259,59 +354,42 @@
 
       const responses = document.querySelectorAll(sel.response);
       if (!responses.length) return;
-
       const lastResponse = responses[responses.length - 1];
       const text = lastResponse?.textContent?.trim();
-
       if (!text || text === lastCapturedResponse) return;
-      
-      const threshold = settings.captureThreshold || 20;
-      if (text.length < threshold) {
-        // console.log(`[MemoryBridge] Text too short to capture (${text.length}<${threshold})`);
-        return;
-      }
+      if (text.length < (settings.captureThreshold || 20)) return;
 
       clearTimeout(window._mbCaptureTimer);
       window._mbCaptureTimer = setTimeout(async () => {
         if (!isContextValid || text === lastCapturedResponse) return;
         lastCapturedResponse = text;
-        await captureConversationTurn(text);
-      }, 2500); 
+        await captureResponse(text);
+      }, 2500);
     });
-
     observer.observe(document.body, { childList: true, subtree: true, characterData: true });
   }
 
-  async function captureConversationTurn(responseText) {
-    console.log('[MemoryBridge] Capture triggered for:', responseText.slice(0, 50));
-    showToast('🧠 Processing memory...', 3000);
-
-    const inputEl = document.querySelector(sel.input);
-    const userText = inputEl?.textContent?.trim() || inputEl?.value?.trim() || '';
-
-    const combined = userText ? `User: ${userText}\n\nAssistant: ${responseText}` : responseText;
-
+  async function captureResponse(responseText) {
+    console.log('[MemoryBridge] Capturing:', responseText.slice(0, 80));
+    showToast('⏳ Saving memory...', 3000);
     const result = await sendMessageSafe({
       type: 'SAVE_MEMORY',
       payload: {
-        content: combined.slice(0, 4000), 
+        content: responseText.slice(0, 4000),
         source: location.href,
         model: PLATFORM,
         type: 'conversation'
       }
     });
-
     if (result?.id) {
-      console.log('[MemoryBridge] Memory saved successfully, ID:', result.id);
-      updateBadge();
+      console.log('[MemoryBridge] Saved:', result.id, '| Facts:', result.facts);
       showToast('💾 Memory saved!', 2000);
     } else {
-      console.error('[MemoryBridge] Save failed:', result?.error);
-      showToast('❌ Save failed', 2000);
+      console.warn('[MemoryBridge] Save failed:', result?.error);
     }
   }
 
-  // ─── Keyboard Shortcuts ───────────────────────────────────────────────────────
+  // ─── Shortcuts ────────────────────────────────────────────────────────────────
   function listenForShortcuts() {
     document.addEventListener('keydown', (e) => {
       if (!isContextValid) return;
@@ -322,11 +400,10 @@
     });
   }
 
-  // ─── Toast Notification ───────────────────────────────────────────────────────
+  // ─── Toast ────────────────────────────────────────────────────────────────────
   function showToast(msg, duration = 2500) {
     const existing = document.getElementById('mb-toast');
     if (existing) existing.remove();
-
     const toast = document.createElement('div');
     toast.id = 'mb-toast';
     toast.textContent = msg;
@@ -340,51 +417,79 @@
     }, duration);
   }
 
-  function updateBadge() {
-    sendMessageSafe({ type: 'UPDATE_BADGE' });
-  }
-
-  // ─── Helpers ──────────────────────────────────────────────────────────────────
-  function escapeHtml(str) {
-    return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-  }
-
-  function formatDate(iso) {
-    if (!iso) return '';
-    try { return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }); } 
-    catch { return ''; }
-  }
-
+  // ─── Styles ────────────────────────────────────────────────────────────────────
   function injectStyles() {
     if (document.getElementById('mb-styles')) return;
     const style = document.createElement('style');
     style.id = 'mb-styles';
     style.textContent = `
-      #mb-bar { position: fixed; bottom: 0; left: 0; width: 100%; background: #1f2937; color: white; height: 32px; font-size: 13px; z-index: 999999; display: flex; align-items: center; padding: 0 15px; box-shadow: 0 -2px 10px rgba(0,0,0,0.2); border-top: 1px solid #374151; font-family: sans-serif; }
-      #mb-bar-inner { width: 100%; display: flex; align-items: center; justify-content: space-between; }
-      #mb-icon { margin-right: 8px; font-size: 16px; }
-      #mb-actions { display: flex; gap: 10px; }
-      #mb-actions button { background: #374151; color: white; border: none; padding: 2px 8px; border-radius: 4px; cursor: pointer; font-size: 11px; transition: background 0.2s; }
-      #mb-actions button:hover { background: #4b5563; }
-      #mb-actions button.off { opacity: 0.5; background: #991b1b; }
-      #mb-memories-panel { position: fixed; bottom: 32px; left: 0; width: 350px; max-height: 500px; background: #111827; border: 1px solid #374151; border-bottom: none; overflow-y: auto; padding: 10px; z-index: 999998; box-shadow: 2px 0 10px rgba(0,0,0,0.3); }
-      .hidden { display: none !important; }
-      .mb-memory-item { background: #1f2937; padding: 8px; border-radius: 6px; margin-bottom: 8px; border-left: 3px solid #6366f1; }
-      .mb-memory-type { font-size: 10px; text-transform: uppercase; opacity: 0.6; margin-bottom: 4px; }
-      .mb-memory-content { font-size: 12px; margin-bottom: 6px; line-height: 1.4; white-space: pre-wrap; word-break: break-word; }
-      .mb-memory-meta { display: flex; justify-content: space-between; align-items: center; font-size: 10px; opacity: 0.7; }
-      .mb-inject-btn { background: transparent; color: #818cf8; border: 1px solid #312e81; padding: 1px 5px; border-radius: 3px; cursor: pointer; }
-      .mb-inject-btn:hover { background: #312e81; color: white; }
-      #mb-toast { position: fixed; left: 50%; bottom: 50px; transform: translateX(-50%) translateY(20px); background: #6366f1; color: white; padding: 8px 20px; border-radius: 20px; font-size: 14px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); pointer-events: none; opacity: 0; transition: all 0.3s; z-index: 1000000; }
-      #mb-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+      #mb-bar {
+        position:fixed;bottom:0;left:0;width:100%;
+        background:linear-gradient(90deg,#1e1b4b,#1f2937);
+        color:white;height:34px;font-size:13px;z-index:999999;
+        display:flex;align-items:center;padding:0 16px;
+        box-shadow:0 -2px 12px rgba(99,102,241,.3);
+        border-top:1px solid #312e81;font-family:system-ui,sans-serif;
+      }
+      #mb-bar-inner{width:100%;display:flex;align-items:center;gap:10px;}
+      #mb-icon{font-size:16px;}
+      #mb-text{flex:1;color:#c7d2fe;font-size:12px;}
+      #mb-actions{display:flex;gap:8px;}
+      #mb-actions button{
+        background:#312e81;color:#c7d2fe;border:1px solid #4338ca;
+        padding:3px 10px;border-radius:99px;cursor:pointer;
+        font-size:11px;transition:all .2s;
+      }
+      #mb-actions button:hover{background:#4338ca;color:white;}
+      #mb-actions button.off{background:#7f1d1d;border-color:#991b1b;color:#fca5a5;}
+      #mb-memories-panel{
+        position:fixed;bottom:34px;left:0;width:360px;
+        max-height:480px;background:#111827;border:1px solid #374151;
+        overflow-y:auto;padding:10px;z-index:999998;
+        box-shadow:4px 0 20px rgba(0,0,0,.5);border-radius:0 8px 0 0;
+      }
+      .hidden{display:none!important;}
+      .mb-memory-item{
+        background:#1f2937;padding:10px;border-radius:6px;
+        margin-bottom:8px;border-left:3px solid #6366f1;
+      }
+      .mb-memory-content{font-size:12px;color:#d1d5db;line-height:1.5;margin-bottom:6px;}
+      .mb-memory-meta{display:flex;justify-content:space-between;align-items:center;font-size:10px;color:#6b7280;}
+      .mb-inject-btn{
+        background:transparent;color:#818cf8;
+        border:1px solid #312e81;padding:1px 6px;
+        border-radius:3px;cursor:pointer;font-size:10px;
+      }
+      .mb-inject-btn:hover{background:#312e81;color:white;}
+      .mb-loading,.mb-empty{text-align:center;color:#6b7280;padding:20px;font-size:12px;}
+      #mb-toast{
+        position:fixed;left:50%;bottom:50px;
+        transform:translateX(-50%) translateY(12px);
+        background:#4f46e5;color:white;padding:8px 22px;
+        border-radius:20px;font-size:13px;
+        box-shadow:0 4px 16px rgba(79,70,229,.5);
+        pointer-events:none;opacity:0;transition:all .25s;z-index:1000000;
+        white-space:nowrap;
+      }
+      #mb-toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
     `;
     document.head.appendChild(style);
+  }
+
+  function escapeHtml(str) {
+    return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function formatDate(iso) {
+    if (!iso) return '';
+    try { return new Date(iso).toLocaleDateString(undefined,{month:'short',day:'numeric'}); }
+    catch { return ''; }
   }
 
   // ─── Boot ─────────────────────────────────────────────────────────────────────
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);
   } else {
-    setTimeout(init, 1000); 
+    setTimeout(init, 1000);
   }
 })();
